@@ -16,8 +16,11 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/spf13/cobra"
 )
 
@@ -38,4 +41,14 @@ func Execute() {
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+}
+
+// newClient attempts to create a new AWS Cloudwatch Logs Client
+func newClient(ctx context.Context, opts ...func(*config.LoadOptions) error) (*cloudwatchlogs.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return cloudwatchlogs.NewFromConfig(cfg), nil
 }
