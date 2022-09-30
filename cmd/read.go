@@ -9,7 +9,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
-	. "github.com/logrusorgru/aurora"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
@@ -18,9 +17,7 @@ import (
 var readCmd = &cobra.Command{
 	Use:   "read",
 	Short: "Retrieve and display the content in the Log Stream",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return executeRead()
-	},
+	RunE:  executeRead,
 }
 
 func init() {
@@ -29,8 +26,8 @@ func init() {
 
 var iconSelect = promptui.Styler(promptui.FGCyan)(promptui.IconSelect)
 
-func executeRead() error {
-	ctx := context.Background()
+func executeRead(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 
 	// init cwl client
 	client, err := newClient(ctx)
@@ -63,8 +60,16 @@ func executeRead() error {
 	}
 
 	// display logs
-	if err := displayLogs(ctx, client, logGroup, selStream); err != nil {
+	out, err := client.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+		LogGroupName:  &logGroup,
+		LogStreamName: &selStream,
+	})
+	if err != nil {
 		return err
+	}
+
+	for _, it := range out.Events {
+		print(*it.Message, *it.Timestamp)
 	}
 
 	return nil
@@ -73,17 +78,16 @@ func executeRead() error {
 func promptLogGroup(resourceMap ResourceMap) (string, error) {
 	// prompt: 1/2
 	tmpl1 := &promptui.SelectTemplates{
-		Label:  "Select Log Group - 1/2",
-		Active: fmt.Sprintf(`%s {{ if eq . ""}}{{ "others" | underline | cyan }}{{ else }}{{ . | underline | cyan }}{{ end }}`, iconSelect),
-		// Inactive: "  {{ . }}",
+		Label:    "Select Log Group - 1/2",
+		Active:   fmt.Sprintf(`%s {{ if eq . ""}}{{ "others" | underline | cyan }}{{ else }}{{ . | underline | cyan }}{{ end }}`, iconSelect),
 		Inactive: `  {{ if eq . ""}}others{{ else }}{{ . }}{{ end }}`,
-		Selected: " ",
 	}
 
 	prompt1 := promptui.Select{
-		Size:      10,
-		Items:     resourceMap.Services(),
-		Templates: tmpl1,
+		Size:         10,
+		Items:        resourceMap.Services(),
+		Templates:    tmpl1,
+		HideSelected: true,
 	}
 
 	_, service, err := prompt1.Run()
@@ -160,24 +164,6 @@ func promptLogStream(items []LogStream) (string, error) {
 	return items[idx].Name, nil
 }
 
-func displayLogs(ctx context.Context, client *cloudwatchlogs.Client, logGroup, logStream string) error {
-	out, err := client.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-		LogGroupName:  &logGroup,
-		LogStreamName: &logStream,
-	})
-	if err != nil {
-		return err
-	}
-
-	for _, it := range out.Events {
-		dt := time.UnixMilli(*it.Timestamp).Format(time.RFC3339)
-
-		fmt.Printf("%s: %s", Cyan(dt), Green(*it.Message))
-	}
-
-	return nil
-}
-
 // ResourceMap is a list of resources grouped by service
 type ResourceMap map[string][]string
 
@@ -210,7 +196,6 @@ func getResourceMap(ctx context.Context, client *cloudwatchlogs.Client) (Resourc
 		// retrieve log groups
 		out, err := client.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
 			NextToken: nextToken,
-			// LogGroupNamePrefix: aws.String("/aws/lambda/exitpass"),
 		})
 		if err != nil {
 			return nil, err

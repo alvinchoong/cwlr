@@ -17,10 +17,13 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	. "github.com/logrusorgru/aurora"
 	"github.com/spf13/cobra"
 )
 
@@ -51,4 +54,10 @@ func newClient(ctx context.Context, opts ...func(*config.LoadOptions) error) (*c
 	}
 
 	return cloudwatchlogs.NewFromConfig(cfg), nil
+}
+
+func print(msg string, milli int64) {
+	dt := time.UnixMilli(milli).Format(time.RFC3339)
+
+	fmt.Printf("%s: %s", Cyan(dt), Green(msg))
 }
