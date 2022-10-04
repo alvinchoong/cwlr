@@ -35,20 +35,25 @@ func executeRead(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// get resources grouped by service
-	resourceMap, err := getResourceMap(ctx, client)
+	// get cloudwatch log groups
+	logGroups, err := getLogGroups(ctx, client)
 	if err != nil {
 		return err
 	}
 
 	// prompt: log group
-	logGroup, err := promptLogGroup(resourceMap)
+	var selLogGroup string
+	if FlagGroup {
+		selLogGroup, err = promptLogGroupWithGrouping(logGroups)
+	} else {
+		selLogGroup, err = promptLogGroup(logGroups)
+	}
 	if err != nil {
 		return err
 	}
 
 	// get log streams by log group
-	logStreams, err := getLogStreams(ctx, client, logGroup)
+	logStreams, err := getLogStreams(ctx, client, selLogGroup)
 	if err != nil {
 		return err
 	}
@@ -61,7 +66,7 @@ func executeRead(cmd *cobra.Command, args []string) error {
 
 	// display logs
 	out, err := client.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-		LogGroupName:  &logGroup,
+		LogGroupName:  &selLogGroup,
 		LogStreamName: &selStream,
 	})
 	if err != nil {
@@ -75,7 +80,41 @@ func executeRead(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func promptLogGroup(resourceMap ResourceMap) (string, error) {
+func promptLogGroup(logGroups []string) (string, error) {
+	tmpl := &promptui.SelectTemplates{
+		Label:    "Select Log Group",
+		Active:   fmt.Sprintf("%s {{ . | underline | cyan }}", iconSelect),
+		Inactive: "  {{ . }}",
+		Selected: `{{ "Log Group:" | faint }}	{{ . }}`,
+	}
+
+	searcher := func(input string, index int) bool {
+		item := logGroups[index]
+
+		label := strings.ToLower(item)
+		search := strings.ToLower(input)
+
+		return strings.Contains(label, search)
+	}
+
+	prompt := promptui.Select{
+		Size:      10,
+		Items:     logGroups,
+		Templates: tmpl,
+		Searcher:  searcher,
+	}
+
+	_, result, err := prompt.Run()
+	if err != nil {
+		return "", fmt.Errorf("prompt failed %v", err)
+	}
+
+	return result, nil
+}
+
+func promptLogGroupWithGrouping(logGroups []string) (string, error) {
+	resourceMap := toResourceMap(logGroups)
+
 	// prompt: 1/2
 	tmpl1 := &promptui.SelectTemplates{
 		Label:    "Select Log Group - 1/2",
@@ -187,9 +226,41 @@ func (r ResourceMap) Services() []string {
 	return ss
 }
 
-// getResourceMap retrieves and group CloudWatch Logs by services
-func getResourceMap(ctx context.Context, client *cloudwatchlogs.Client) (ResourceMap, error) {
+// toResourceMap group CloudWatch Logs by services
+func toResourceMap(logGroups []string) ResourceMap {
 	rm := make(ResourceMap, 0)
+
+	for _, it := range logGroups {
+		// best effort grouping of resources
+		n := 1
+		if strings.HasPrefix(it, "/aws/") {
+			n = 5
+		}
+
+		idx := strings.Index(it[n:], "/")
+		if idx > -1 {
+			idx += n
+		}
+
+		var service string
+		if str := it[:idx+1]; str != "" {
+			service = str
+		}
+		resource := it[idx+1:]
+
+		if _, ok := rm[service]; !ok {
+			rm[service] = []string{}
+		}
+
+		rm[service] = append(rm[service], resource)
+	}
+
+	return rm
+}
+
+// getLogGroups retrieves all CloudWatch Logs
+func getLogGroups(ctx context.Context, client *cloudwatchlogs.Client) ([]string, error) {
+	var lg []string
 
 	var nextToken *string
 	for {
@@ -204,14 +275,7 @@ func getResourceMap(ctx context.Context, client *cloudwatchlogs.Client) (Resourc
 		nextToken = out.NextToken
 
 		for _, it := range out.LogGroups {
-			// attempt to group resources base on service in best effort
-			s, r := split(*it.LogGroupName)
-
-			if _, ok := rm[s]; !ok {
-				rm[s] = []string{}
-			}
-
-			rm[s] = append(rm[s], r)
+			lg = append(lg, *it.LogGroupName)
 		}
 
 		if nextToken == nil {
@@ -219,27 +283,7 @@ func getResourceMap(ctx context.Context, client *cloudwatchlogs.Client) (Resourc
 		}
 	}
 
-	return rm, nil
-}
-
-func split(s string) (string, string) {
-	n := 1
-	if strings.HasPrefix(s, "/aws/") {
-		n = 5
-	}
-
-	idx := strings.Index(s[n:], "/")
-	if idx > -1 {
-		idx += n
-	}
-
-	var service string
-	if str := s[:idx+1]; str != "" {
-		service = str
-	}
-	resource := s[idx+1:]
-
-	return service, resource
+	return lg, nil
 }
 
 type LogStream struct {

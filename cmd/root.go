@@ -27,6 +27,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var FlagGroup bool
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "cwlr",
@@ -44,6 +46,7 @@ func Execute() {
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.PersistentFlags().BoolVarP(&FlagGroup, "group", "g", false, "group resource by service")
 }
 
 // newClient attempts to create a new AWS Cloudwatch Logs Client
