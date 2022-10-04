@@ -31,9 +31,11 @@ Usage:
 Available Commands:
   help        Help about any command
   read        Retrieve and display the content in the Log Stream
+  search      Search and display logs that matches the filter pattern or string
 
 Flags:
-  -h, --help   help for cwlr
+  -g, --group   group resource by service
+  -h, --help    help for cwlr
 
 Use "cwlr [command] --help" for more information about a command.
 ```
