@@ -1,8 +1,15 @@
 package cmd
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
@@ -50,17 +57,26 @@ func excecuteSearch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// TODO: add prompt for start / end time
-
-	out, err := client.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
-		LogGroupName:  aws.String(selLogGroup),
-		FilterPattern: aws.String(pattern),
-	})
+	// prompt: start date
+	start, err := promptDateTime("Start")
 	if err != nil {
 		return err
 	}
 
-	for _, it := range out.Events {
+	// prompt: end date
+	end, err := promptDateTime("End")
+	if err != nil {
+		return err
+	}
+
+	// query
+	logs, err := getFilteredLogs(ctx, client, selLogGroup, pattern, start, end)
+	if err != nil {
+		return err
+	}
+
+	// display
+	for _, it := range logs {
 		print(*it.Message, *it.Timestamp)
 	}
 
@@ -73,4 +89,89 @@ func promptPattern() (string, error) {
 	}
 
 	return prompt.Run()
+}
+
+func promptDateTime(labelPrefix string) (*int64, error) {
+	validateDate := func(input string) error {
+		s := strings.TrimSpace(input)
+		if len(s) == 0 {
+			return nil
+		}
+
+		if _, err := time.Parse("2006-01-02", s); err != nil {
+			return errors.New("invalid date format")
+		}
+
+		return nil
+	}
+
+	promptDate := promptui.Prompt{
+		Label:    labelPrefix + " Date (YYYY-MM-DD)",
+		Validate: validateDate,
+	}
+
+	resultDate, err := promptDate.Run()
+	if err != nil {
+		return nil, err
+	}
+	dateString := strings.TrimSpace(resultDate)
+
+	if len(dateString) == 0 {
+		return nil, nil
+	}
+
+	validateTime := func(input string) error {
+		s := strings.TrimSpace(input)
+		if _, err := time.Parse("15:04:05", s); err != nil {
+			return errors.New("invalid time format")
+		}
+
+		return nil
+	}
+
+	promptTime := promptui.Prompt{
+		Label:    labelPrefix + " Time (HH:MM:SS)",
+		Validate: validateTime,
+	}
+
+	resultTime, err := promptTime.Run()
+	if err != nil {
+		return nil, err
+	}
+	timeString := strings.TrimSpace(resultTime)
+
+	// parse and convert into unix time
+	d, _ := time.Parse(time.RFC3339, fmt.Sprintf("%sT%sZ", dateString, timeString))
+	m := d.UnixMilli()
+
+	return &m, nil
+}
+
+func getFilteredLogs(ctx context.Context, client *cloudwatchlogs.Client, logGroup, pattern string, start, end *int64) ([]types.FilteredLogEvent, error) {
+	// TODO: consider handling of pagination from CLI instead (e.g prompt for "more")
+
+	var logs []types.FilteredLogEvent
+
+	var next *string
+	for {
+		out, err := client.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
+			LogGroupName:  aws.String(logGroup),
+			FilterPattern: aws.String(pattern),
+			StartTime:     start,
+			EndTime:       end,
+			NextToken:     next,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		logs = append(logs, out.Events...)
+
+		next = out.NextToken
+		if next == nil {
+			break
+		}
+	}
+
+	return logs, nil
 }
