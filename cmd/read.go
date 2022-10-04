@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
@@ -64,16 +65,14 @@ func executeRead(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// display logs
-	out, err := client.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
-		LogGroupName:  &selLogGroup,
-		LogStreamName: &selStream,
-	})
+	// query
+	logs, err := getLogs(ctx, client, selLogGroup, selStream)
 	if err != nil {
 		return err
 	}
 
-	for _, it := range out.Events {
+	// display
+	for _, it := range logs {
 		print(*it.Message, *it.Timestamp)
 	}
 
@@ -309,4 +308,32 @@ func getLogStreams(ctx context.Context, client *cloudwatchlogs.Client, logGroup 
 	}
 
 	return ls, nil
+}
+
+func getLogs(ctx context.Context, client *cloudwatchlogs.Client, logGroup, logStream string) ([]types.OutputLogEvent, error) {
+	// TODO: consider handling of pagination from CLI instead (e.g prompt for "more")
+
+	var logs []types.OutputLogEvent
+
+	var next *string
+	for {
+		out, err := client.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+			LogGroupName:  &logGroup,
+			LogStreamName: &logStream,
+			StartFromHead: aws.Bool(true),
+			NextToken:     next,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if next != nil && *next == *out.NextForwardToken {
+			break
+		}
+
+		logs = append(logs, out.Events...)
+		next = out.NextForwardToken
+	}
+
+	return logs, nil
 }
