@@ -50,14 +50,30 @@ func executeEvent(cmd *cobra.Command, args []string) error {
 	}
 
 	if !confirm {
-		fmt.Println("exiting...")
+		fmt.Println("aborting changes...")
 
 		return nil
 	}
 
-	fmt.Printf("selected: %+v\n", rule)
+	// toggle event rule from ENABLED to DISABLED
+	if rule.State == types.RuleStateEnabled {
+		_, err := client.DisableRule(ctx, &eventbridge.DisableRuleInput{
+			Name:         &rule.Name,
+			EventBusName: rule.EventBusName,
+		})
 
-	return nil
+		return err
+	}
+
+	// toggle event rule from DISABLED to ENABLED
+	_, err = client.EnableRule(ctx, &eventbridge.EnableRuleInput{
+		Name:         &rule.Name,
+		EventBusName: rule.EventBusName,
+	})
+
+	fmt.Println("updated successfully...")
+
+	return err
 }
 
 func promptEventRule(rules []Rule) (Rule, error) {
@@ -122,6 +138,7 @@ type Rule struct {
 	Name               string
 	Description        *string
 	ScheduleExpression *string
+	EventBusName       *string
 	State              types.RuleState
 }
 
@@ -140,6 +157,7 @@ func getEventRules(ctx context.Context, client *eventbridge.Client) ([]Rule, err
 				Name:               *it.Name,
 				Description:        it.Description,
 				ScheduleExpression: it.ScheduleExpression,
+				EventBusName:       it.EventBusName,
 				State:              it.State,
 			}
 
