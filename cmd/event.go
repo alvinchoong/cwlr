@@ -9,7 +9,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
-	"github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
@@ -36,50 +35,34 @@ func executeEvent(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// rule, err := promptEventRule(rules)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// fmt.Printf("%+v\n", rule)
-	for _, it := range rules {
-		fmt.Printf("Name: %+v\n", *it.Name)
-		if it.Description != nil {
-			fmt.Printf("Desc: %+v\n", *it.Description)
-		}
-		if it.ScheduleExpression != nil {
-			fmt.Printf("Expr: %+v\n", *it.ScheduleExpression)
-		}
-		fmt.Printf("State: %+v\n", it.State)
-		fmt.Println("----")
+	rule, err := promptEventRule(rules)
+	if err != nil {
+		return err
 	}
+
+	fmt.Printf("selected: %+v\n", rule)
 
 	return nil
 }
 
-func promptEventRule(rules []types.Rule) (string, error) {
+func promptEventRule(rules []Rule) (string, error) {
 	tmpl := &promptui.SelectTemplates{
 		Label:    "Select Event Rule",
 		Active:   fmt.Sprintf("%s {{ .Name | underline | cyan }}", iconSelect),
-		Inactive: "  {{ . }}",
-		Selected: `{{ "Event Rule:" | faint }}	{{ . }}`,
-		Details:  ``,
+		Inactive: "  {{ .Name }}",
+		Selected: `{{ "Event Rule:" | faint }}	{{ .Name }}`,
+		Details: `
+--------- Details ----------
+{{ "Name:" | faint }}	{{ .Name }}
+{{ "Description:" | faint }}	{{ .Description }}
+{{ "ScheduleExpression:" | faint }}	{{ .ScheduleExpression }}
+{{ "State:" | faint }}	{{if eq .State "ENABLED" }}{{ .State | green }}{{else}}{{ .State | red }}{{end}}`,
 	}
-
-	// searcher := func(input string, index int) bool {
-	// 	item := logGroups[index]
-
-	// 	label := strings.ToLower(item)
-	// 	search := strings.ToLower(input)
-
-	// 	return strings.Contains(label, search)
-	// }
 
 	prompt := promptui.Select{
 		Size:      10,
 		Items:     rules,
 		Templates: tmpl,
-		// Searcher:  searcher,
 	}
 
 	_, result, err := prompt.Run()
@@ -90,16 +73,14 @@ func promptEventRule(rules []types.Rule) (string, error) {
 	return result, nil
 }
 
-// types.RuleStateEnabled
-
 type Rule struct {
-	Name        string
-	Description *string
-	Expression  *string
-	Enabled     bool
+	Name               string
+	Description        *string
+	ScheduleExpression *string
+	State              string
 }
 
-func getEventRules(ctx context.Context, client *eventbridge.Client) ([]types.Rule, error) {
+func getEventRules(ctx context.Context, client *eventbridge.Client) ([]Rule, error) {
 	var rules []Rule
 
 	var next *string
@@ -110,8 +91,14 @@ func getEventRules(ctx context.Context, client *eventbridge.Client) ([]types.Rul
 		}
 
 		for _, it := range out.Rules {
-			rule := Rule{}
-			rules = append(rules, it)
+			rule := Rule{
+				Name:               *it.Name,
+				Description:        it.Description,
+				ScheduleExpression: it.ScheduleExpression,
+				State:              string(it.State),
+			}
+
+			rules = append(rules, rule)
 		}
 
 		next = out.NextToken
