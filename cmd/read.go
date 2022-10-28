@@ -307,6 +307,11 @@ func getLogStreams(ctx context.Context, client *cloudwatchlogs.Client, logGroup 
 		})
 	}
 
+	// sort desc
+	sort.SliceStable(ls, func(i, j int) bool {
+		return ls[i].Date.After(ls[j].Date)
+	})
+
 	return ls, nil
 }
 
